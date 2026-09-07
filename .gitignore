@@ -1,0 +1,21 @@
+# Maven / Java
+target/
+*.class
+*.jar
+
+# Dados gerados em tempo de execucao
+agencia/data/
+data/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+
+# Sistema
+.DS_Store
+Thumbs.db
+desktop.ini
