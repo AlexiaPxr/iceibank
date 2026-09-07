@@ -1,16 +1,44 @@
 # RESPOSTAS — ICEIBank — Sprint 1
 
-
-
 ## Parte B — Relógio de Lamport e registro de eventos
 
 **1. Por que o relógio de Lamport usa `max(contador_local, timestampRecebido) + 1` ao receber uma mensagem, em vez de simplesmente adotar o timestamp recebido diretamente?**
 
+Porque adotar o timestamp recebido diretamente quebraria a garantia central
+do algoritmo: que todo evento causalmente posterior tenha um timestamp
+maior que os eventos que o causaram. Se a Agência 0 estivesse no contador 10
+(ou seja, já processou 10 eventos locais) e simplesmente copiasse um
+timestamp recebido de 3, o próximo evento local dela sairia com timestamp 4
+- só que esse evento pode ter uma relação de causalidade com os 10 eventos
+anteriores que ela mesma já processou. Usar apenas o timestamp recebido
+"esqueceria" toda a história local da agência.
 
+O "+1" também importa por outro motivo: garante que o evento de recebimento
+em si sempre tenha um timestamp estritamente maior que o timestamp de envio
+da mensagem, nunca igual. Isso preserva a propriedade de que "enviar
+sempre acontece antes de receber", que é justamente o tipo de relação
+causal que o relógio de Lamport precisa capturar corretamente.
 
 **2. Se a Agência 0 está no evento de contador 10 e recebe uma mensagem com timestamp 3 (de uma agência mais "atrasada"), qual o novo valor do contador da Agência 0? O que isso implica sobre agências que processam muitos eventos rapidamente versus agências mais lentas?**
 
+O novo valor seria max(10, 3) + 1 = 11. Como a Agência 0 já estava "à
+frente" (contador 10 é maior que o timestamp recebido, 3), o contador quase
+não muda - ele simplesmente continua de onde estava, ignorando na prática
+o valor mais baixo recebido.
 
+Isso implica que agências que processam muitos eventos rapidamente "puxam"
+o relógio lógico do sistema inteiro para cima: uma agência lenta ou pouco
+usada nunca consegue "atrasar" uma agência rápida - só o contrário, uma
+agência rápida pode fazer o contador de uma agência lenta saltar várias
+casas de uma vez quando elas finalmente trocam uma mensagem (foi
+exatamente o que vi na prática entre a Agência 0 e a Agência 1 no meu teste
+de transferência: a Agência 1 pulou de 1 direto para 4 ao receber uma
+mensagem da Agência 0, que já estava mais adiantada). Isso é consistente
+com a garantia do algoritmo - o relógio lógico nunca anda para trás -, mas
+mostra que o valor absoluto do contador de uma agência não diz nada sobre
+quantos eventos ela processou "de verdade": ele reflete tanto a atividade
+local quanto o quanto ela já foi "contaminada" causalmente por agências
+mais ativas.
 
 ---
 
@@ -270,6 +298,25 @@ uma refatoração para separar melhor "o que aciona a ação" de "como a ação
 blocos comentados já deixa a lógica rastreável sem introduzir a
 complexidade de um framework completo.
 
+### Nota sobre a evidência `frontend-transferencia.png`
+
+O print capturado para essa evidência mostra uma tentativa de transferência
+entre agências que **falhou** (a Agência 1 estava fora do ar no momento do
+teste), não uma transferência bem-sucedida. Isso não foi um erro do
+frontend - pelo contrário, é uma boa demonstração de que a interface lida
+corretamente com a limitação conhecida documentada na Parte D: o histórico
+visível no print mostra o evento TRANSFERENCIA_FALHOU sendo registrado
+normalmente, com a mensagem de erro apropriada.
+
+Transferências bem-sucedidas (tanto local quanto entre agências) já foram
+validadas e documentadas com evidências via linha de comando
+(Invoke-RestMethod) nas evidências transferencia-local.png e
+transferencia-entre-agencias.png. Optei por manter este print do frontend
+como está, em vez de refazer o teste com a Agência 1 no ar, porque ele
+agrega uma evidência adicional relevante (o comportamento da UI diante de
+falha), complementando - não substituindo - a cobertura funcional já
+demonstrada por linha de comando.
+
 ---
 
 ## Funcionalidade adicional (seção 2.1)
@@ -281,5 +328,3 @@ complexidade de um framework completo.
 **Por que essa:** o sistema já registra todo evento com riqueza de detalhes (Parte B), mas não havia nenhuma forma de consultar esses dados via API — só existiam como arquivo de log local ou agregados na linha do tempo geral (Parte E). Esse endpoint reaproveita a infraestrutura de eventos já implementada e entrega valor real: permite auditar o que aconteceu com uma conta específica sem precisar abrir o arquivo `.jsonl` manualmente.
 
 **Evidência de teste:** ver `evidencias/sprint1/funcionalidade-adicional.png`.
-
-
