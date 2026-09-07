@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ICEIBank</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <header>
+    <h1>🏦 ICEIBank</h1>
+    <p>Sprint 1 — API REST/MVC com relógio de Lamport</p>
+  </header>
+
+  <div class="status-bar">
+    <div>
+      Sessão: <span id="tagSessao" class="tag deslogado">deslogado</span>
+      <span id="infoConta" style="margin-left:8px; color:#667085;"></span>
+    </div>
+    <button id="btnSair" class="secundario escondido" style="margin:0;">Sair</button>
+  </div>
+
+  <div class="container">
+
+    <!-- Configuração da agência -->
+    <div class="painel">
+      <h2>Agência de acesso</h2>
+      <label for="urlAgencia">URL da agência (porta de entrada)</label>
+      <select id="urlAgencia">
+        <option value="http://localhost:4000">Agência 0 — http://localhost:4000</option>
+        <option value="http://localhost:4001">Agência 1 — http://localhost:4001</option>
+        <option value="http://localhost:4002">Agência 2 — http://localhost:4002</option>
+        <option value="custom">Outra (digitar manualmente)</option>
+      </select>
+      <input id="urlAgenciaCustom" type="text" placeholder="http://localhost:4000" class="escondido" style="margin-top:8px;" />
+      <p style="font-size:0.8rem; color:#667085; margin-top:8px;">
+        Cada agência só responde pelas contas sob sua responsabilidade (id_conta % 3). Escolha a agência dona da conta que você quer acessar.
+      </p>
+    </div>
+
+    <!-- Login -->
+    <div class="painel" id="painelLogin">
+      <h2>Login</h2>
+      <div class="linha">
+        <div>
+          <label for="loginId">Id da conta</label>
+          <input id="loginId" type="number" placeholder="0" />
+        </div>
+        <div>
+          <label for="loginSenha">Senha</label>
+          <input id="loginSenha" type="password" placeholder="••••••" />
+        </div>
+      </div>
+      <button id="btnLogin">Entrar</button>
+      <div id="msgLogin" class="mensagem"></div>
+    </div>
+
+    <!-- Criar conta -->
+    <div class="painel">
+      <h2>Criar conta</h2>
+      <div class="linha">
+        <div>
+          <label for="criarId">Id da conta</label>
+          <input id="criarId" type="number" placeholder="0" />
+        </div>
+        <div>
+          <label for="criarNome">Nome do aluno</label>
+          <input id="criarNome" type="text" placeholder="Ana" />
+        </div>
+      </div>
+      <div class="linha">
+        <div>
+          <label for="criarSenha">Senha</label>
+          <input id="criarSenha" type="password" placeholder="••••••" />
+        </div>
+        <div>
+          <label for="criarSaldo">Saldo inicial</label>
+          <input id="criarSaldo" type="number" placeholder="100" />
+        </div>
+      </div>
+      <button id="btnCriar" class="secundario">Criar conta</button>
+      <div id="msgCriar" class="mensagem"></div>
+    </div>
+
+    <!-- Área logada -->
+    <div id="areaLogada" class="escondido">
+
+      <div class="painel">
+        <h2>Saldo</h2>
+        <div class="saldo-destaque" id="saldoAtual">—</div>
+        <button id="btnAtualizarSaldo" class="secundario">Atualizar saldo</button>
+        <div id="msgSaldo" class="mensagem"></div>
+      </div>
+
+      <div class="painel">
+        <h2>Depósito / Saque</h2>
+        <label for="valorOperacao">Valor</label>
+        <input id="valorOperacao" type="number" placeholder="50" />
+        <div class="linha">
+          <button id="btnDepositar">Depositar</button>
+          <button id="btnSacar" class="secundario">Sacar</button>
+        </div>
+        <div id="msgOperacao" class="mensagem"></div>
+      </div>
+
+      <div class="painel">
+        <h2>Transferência</h2>
+        <p style="font-size:0.8rem; color:#667085; margin-top:-6px;">
+          Funciona tanto para a mesma agência quanto para agências diferentes — a decisão é feita no backend.
+        </p>
+        <label for="transfDestino">Id da conta de destino</label>
+        <input id="transfDestino" type="number" placeholder="1" />
+        <label for="transfValor">Valor</label>
+        <input id="transfValor" type="number" placeholder="30" />
+        <button id="btnTransferir">Transferir</button>
+        <div id="msgTransferencia" class="mensagem"></div>
+      </div>
+
+      <div class="painel">
+        <h2>Histórico (funcionalidade adicional)</h2>
+        <button id="btnHistorico" class="secundario">Ver histórico da conta</button>
+        <div id="listaHistorico" style="margin-top:12px;"></div>
+        <div id="msgHistorico" class="mensagem"></div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

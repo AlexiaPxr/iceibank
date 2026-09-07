@@ -1,0 +1,186 @@
+:root {
+  --azul: #1450a3;
+  --azul-escuro: #0d3169;
+  --verde: #1f9d55;
+  --vermelho: #c0392b;
+  --cinza-claro: #f4f6fa;
+  --cinza-borda: #dde3ee;
+  --texto: #1c2733;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: var(--cinza-claro);
+  color: var(--texto);
+}
+
+header {
+  background: linear-gradient(135deg, var(--azul-escuro), var(--azul));
+  color: white;
+  padding: 20px 24px;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+header p {
+  margin: 4px 0 0;
+  opacity: 0.85;
+  font-size: 0.9rem;
+}
+
+.container {
+  max-width: 720px;
+  margin: 24px auto;
+  padding: 0 16px 48px;
+}
+
+.painel {
+  background: white;
+  border: 1px solid var(--cinza-borda);
+  border-radius: 10px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.painel h2 {
+  margin-top: 0;
+  font-size: 1.05rem;
+  color: var(--azul-escuro);
+}
+
+label {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 12px 0 4px;
+}
+
+input, select {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--cinza-borda);
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.linha {
+  display: flex;
+  gap: 12px;
+}
+
+.linha > div {
+  flex: 1;
+}
+
+button {
+  margin-top: 16px;
+  background: var(--azul);
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+button:hover {
+  background: var(--azul-escuro);
+}
+
+button.secundario {
+  background: transparent;
+  color: var(--azul);
+  border: 1px solid var(--azul);
+}
+
+button.secundario:hover {
+  background: var(--cinza-claro);
+}
+
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  padding: 10px 24px;
+  background: white;
+  border-bottom: 1px solid var(--cinza-borda);
+}
+
+.tag {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.tag.logado {
+  background: #e4f7e9;
+  color: var(--verde);
+}
+
+.tag.deslogado {
+  background: #fdeaea;
+  color: var(--vermelho);
+}
+
+.mensagem {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  display: none;
+}
+
+.mensagem.sucesso {
+  display: block;
+  background: #e4f7e9;
+  color: #146c34;
+  border: 1px solid #b6e6c5;
+}
+
+.mensagem.erro {
+  display: block;
+  background: #fdeaea;
+  color: var(--vermelho);
+  border: 1px solid #f3c2bb;
+}
+
+.escondido {
+  display: none !important;
+}
+
+.saldo-destaque {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: var(--azul-escuro);
+}
+
+.evento {
+  border-bottom: 1px solid var(--cinza-borda);
+  padding: 8px 0;
+  font-size: 0.85rem;
+}
+
+.evento:last-child {
+  border-bottom: none;
+}
+
+.evento .tipo {
+  font-weight: 700;
+  color: var(--azul-escuro);
+}
+
+.evento .meta {
+  color: #667085;
+  font-size: 0.78rem;
+}
