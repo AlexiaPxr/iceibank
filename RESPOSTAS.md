@@ -328,3 +328,36 @@ demonstrada por linha de comando.
 **Por que essa:** o sistema já registra todo evento com riqueza de detalhes (Parte B), mas não havia nenhuma forma de consultar esses dados via API — só existiam como arquivo de log local ou agregados na linha do tempo geral (Parte E). Esse endpoint reaproveita a infraestrutura de eventos já implementada e entrega valor real: permite auditar o que aconteceu com uma conta específica sem precisar abrir o arquivo `.jsonl` manualmente.
 
 **Evidência de teste:** ver `evidencias/sprint1/funcionalidade-adicional.png`.
+
+
+---
+
+# SPRINT 2
+
+## Parte B — Relógio vetorial
+
+**1. Com 3 agências, o vetor tem 3 posições. Se o sistema crescesse para 10 agências, o que aconteceria com o tamanho de cada vetor anexado a cada mensagem? Isso é um problema? Por quê (ou por que não)?**
+
+O vetor teria 10 posições, ou seja, seu tamanho cresce linearmente com o número de processos (O(n)), e cada mensagem carregaria esse vetor inteiro. No meu teste com 3 agências, a mensagem de crédito levava `[3, 0, 0]`; com 10 seria algo como `[3, 0, 0, 0, 0, 0, 0, 0, 0, 0]`.
+
+Para 10 agências isso não chega a ser problema: são 10 inteiros por mensagem, um custo pequeno perto do resto do corpo da mensagem (id da conta, valor, origem). O problema aparece em escala maior. Com milhares de processos, cada mensagem e cada linha de log carregaria milhares de inteiros, e o custo de comparar dois vetores (feito posição a posição) também cresce com n. Além disso, o vetor precisa ser fixo e conhecido de antemão: no meu código o tamanho vem de `NUMERO_AGENCIAS`, então incluir uma agência nova exigiria mudar todas as agências e invalidar os logs antigos. Existem variações que reduzem esse custo (vetores esparsos, que só enviam as posições alteradas, ou relógios de versão dinâmicos), mas o custo linear é o preço de ter a garantia de causalidade que o Lamport não dava.
+
+**2. Dado V1 = [3, 1, 0] e V2 = [3, 2, 0]: qual evento aconteceu primeiro, ou eles são concorrentes? Justifique comparando posição a posição.**
+
+V1 aconteceu antes de V2. Comparando posição a posição:
+
+- Posição 0: 3 e 3, iguais (V1 ≤ V2).
+- Posição 1: 1 e 2, então V1 < V2.
+- Posição 2: 0 e 0, iguais (V1 ≤ V2).
+
+V1[i] ≤ V2[i] em todas as posições e os vetores são diferentes, então V1 → V2 (V1 aconteceu antes de V2 e pode tê-lo influenciado). Nenhuma posição de V1 é maior que a de V2, então V2 não é anterior a V1.
+
+**3. Dado V1 = [3, 1, 0] e V2 = [1, 3, 0]: qual evento aconteceu primeiro, ou eles são concorrentes? Justifique.**
+
+São concorrentes. Comparando posição a posição:
+
+- Posição 0: 3 contra 1, então V1[0] > V2[0].
+- Posição 1: 1 contra 3, então V1[1] < V2[1].
+- Posição 2: 0 e 0, iguais.
+
+Como V1 é maior em uma posição e V2 é maior em outra, nem V1 ≤ V2 nem V2 ≤ V1. Nenhum dos dois eventos "conhecia" o outro: a agência 0 já tinha feito 3 eventos que a agência 1 ainda não tinha visto (V1[0]=3 contra 1), e a agência 1 tinha feito 3 eventos que a agência 0 não tinha visto (V2[1]=3 contra 1). Isso é exatamente o que o Lamport não conseguia afirmar: dois números diferentes não diriam se havia causalidade, e aqui o vetor prova que não há.
