@@ -22,15 +22,14 @@ public class TransferenciasController {
     @PostMapping("/transferencias")
     public Map<String, String> transferir(@RequestBody TransferenciaRequest requisicao) {
         String mensagem = transferenciaService.transferir(
-                requisicao.idOrigem(), requisicao.idDestino(), requisicao.valor()
-        );
+                requisicao.idOrigem(), requisicao.idDestino(), requisicao.valor());
         return Map.of("mensagem", mensagem);
     }
 
     @PostMapping("/contas/{id}/creditar-remoto")
     public Map<String, Object> creditarRemoto(@PathVariable int id, @RequestBody CreditoRemotoRequest requisicao) {
         double saldoAtual = transferenciaService.creditarRemoto(
-                id, requisicao.valor(), requisicao.timestampLamport(), requisicao.origemAgencia()
+                id, requisicao.valor(), requisicao.vetorEnvio(), requisicao.origemAgencia()
         );
         return Map.of("mensagem", "Crédito remoto aplicado.", "saldoAtual", saldoAtual);
     }

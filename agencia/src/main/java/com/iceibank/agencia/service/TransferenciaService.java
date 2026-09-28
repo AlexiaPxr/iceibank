@@ -21,13 +21,13 @@ public class TransferenciaService {
 
     private final ContaService contaService;
     private final AgenciaProperties agenciaProperties;
-    private final RelogioLamport relogio;
+    private final RelogioVetorial relogio;
     private final RegistroEventos registro;
     private final JwtUtil jwtUtil;
     private final RestTemplate restTemplate = new RestTemplate();
 
     public TransferenciaService(ContaService contaService, AgenciaProperties agenciaProperties,
-                                 RelogioLamport relogio, RegistroEventos registro, JwtUtil jwtUtil) {
+                                 RelogioVetorial relogio, RegistroEventos registro, JwtUtil jwtUtil) {
         this.contaService = contaService;
         this.agenciaProperties = agenciaProperties;
         this.relogio = relogio;
@@ -43,10 +43,9 @@ public class TransferenciaService {
 
         int agenciaDestino = agenciaProperties.agenciaResponsavel(idDestino);
 
-        // O debito e sempre local, pois esta agencia e a dona da conta de origem.
-        int tsDebito = relogio.eventoLocal();
+        int[] vetorDebito = relogio.eventoLocal();
         contaOrigem.setSaldo(contaOrigem.getSaldo() - valor);
-        registro.registrar("TRANSFERENCIA_DEBITO", tsDebito, Map.of(
+        registro.registrar("TRANSFERENCIA_DEBITO", vetorDebito, Map.of(
                 "idOrigem", idOrigem, "idDestino", idDestino, "valor", valor
         ));
 
@@ -59,9 +58,9 @@ public class TransferenciaService {
     private String transferirMesmaAgencia(Conta contaOrigem, int idOrigem, int idDestino, double valor) {
         try {
             Conta contaDestino = contaService.consultar(idDestino);
-            int tsCredito = relogio.eventoLocal();
+            int[] vetorCredito = relogio.eventoLocal();
             contaDestino.setSaldo(contaDestino.getSaldo() + valor);
-            registro.registrar("TRANSFERENCIA_CREDITO", tsCredito, Map.of(
+            registro.registrar("TRANSFERENCIA_CREDITO", vetorCredito, Map.of(
                     "idOrigem", idOrigem, "idDestino", idDestino, "valor", valor
             ));
             return "Transferência concluída (mesma agência).";
@@ -72,7 +71,7 @@ public class TransferenciaService {
     }
 
     private String transferirEntreAgencias(int idOrigem, int idDestino, double valor, int agenciaDestino) {
-        int tsEnvio = relogio.aoEnviar();
+        int[] vetorEnvio = relogio.aoEnviar();
         String urlDestino = agenciaProperties.urlDaAgencia(agenciaDestino);
         String tokenInterno = jwtUtil.gerarTokenInterno(agenciaProperties.getIdAgencia());
 
@@ -81,16 +80,13 @@ public class TransferenciaService {
             headers.setBearerAuth(tokenInterno);
             headers.setContentType(MediaType.APPLICATION_JSON);
 
-            CreditoRemotoRequest corpo = new CreditoRemotoRequest(valor, tsEnvio, agenciaProperties.getIdAgencia());
+            CreditoRemotoRequest corpo = new CreditoRemotoRequest(valor, vetorEnvio, agenciaProperties.getIdAgencia());
             HttpEntity<CreditoRemotoRequest> requisicao = new HttpEntity<>(corpo, headers);
 
             restTemplate.postForEntity(urlDestino + "/contas/" + idDestino + "/creditar-remoto", requisicao, Map.class);
             return "Transferência concluída (entre agências).";
         } catch (RestClientException e) {
-            // LIMITACAO CONHECIDA: o debito ja aplicado acima NAO e revertido aqui -
-            // e intencional. Resolver isso de verdade (garantir atomicidade mesmo sob
-            // falha) e o assunto do Sprint 4, com uma transacao distribuida (2PC/Saga).
-            // Por enquanto, so registramos a inconsistencia no log.
+
             registro.registrar("TRANSFERENCIA_FALHOU", relogio.eventoLocal(), Map.of(
                     "idOrigem", idOrigem, "idDestino", idDestino, "valor", valor,
                     "erro", String.valueOf(e.getMessage())
@@ -101,14 +97,14 @@ public class TransferenciaService {
         }
     }
 
-    public synchronized double creditarRemoto(int idConta, double valor, int timestampLamport, int origemAgencia) {
-        // Regra 3 do relogio de Lamport: ao RECEBER uma mensagem de outra agencia.
-        int ts = relogio.aoReceber(timestampLamport);
+    public synchronized double creditarRemoto(int idConta, double valor, int[] vetorEnvio, int origemAgencia) {
+
+        int[] vetor = relogio.aoReceber(vetorEnvio);
 
         Conta conta = contaService.consultar(idConta);
         conta.setSaldo(conta.getSaldo() + valor);
 
-        registro.registrar("TRANSFERENCIA_CREDITO_REMOTO", ts, Map.of(
+        registro.registrar("TRANSFERENCIA_CREDITO_REMOTO", vetor, Map.of(
                 "idConta", idConta, "valor", valor, "origemAgencia", origemAgencia
         ));
 

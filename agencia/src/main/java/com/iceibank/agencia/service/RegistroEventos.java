@@ -1,5 +1,7 @@
 package com.iceibank.agencia.service;
 
+import java.util.Arrays;
+
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.iceibank.agencia.config.AgenciaProperties;
 import jakarta.annotation.PostConstruct;
@@ -16,11 +18,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * Grava cada evento como uma linha JSON em agencia/data/eventos-agencia-N.jsonl.
- * E a materia-prima usada pelo script MesclarLogs (Parte E) e pela
- * funcionalidade adicional de historico por conta (secao 2.1).
- */
 @Service
 public class RegistroEventos {
 
@@ -42,11 +39,12 @@ public class RegistroEventos {
         this.caminhoArquivo = pastaDados.resolve("eventos-" + nomeAgencia + ".jsonl");
     }
 
-    public synchronized Map<String, Object> registrar(String tipo, int timestampLamport, Map<String, Object> detalhes) {
+    public synchronized Map<String, Object> registrar(String tipo, int[] timestampVetorial,
+            Map<String, Object> detalhes) {
         Map<String, Object> evento = new LinkedHashMap<>();
         evento.put("agencia", nomeAgencia);
         evento.put("tipo", tipo);
-        evento.put("timestampLamport", timestampLamport);
+        evento.put("timestampVetorial", timestampVetorial);
         evento.put("horaParede", Instant.now().toString());
         evento.put("detalhes", detalhes);
 
@@ -59,14 +57,10 @@ public class RegistroEventos {
             throw new UncheckedIOException(e);
         }
 
-        System.out.println("[Lamport " + timestampLamport + "] " + tipo + " " + detalhes);
+        System.out.println("[Vetor " + Arrays.toString(timestampVetorial) + "] " + tipo + " " + detalhes);
         return evento;
     }
 
-    /**
-     * Funcionalidade adicional (secao 2.1): historico de eventos de uma conta
-     * especifica, usado pelo endpoint GET /contas/{id}/historico.
-     */
     public List<Map<String, Object>> lerEventosDaConta(int idConta) {
         List<Map<String, Object>> resultado = new ArrayList<>();
         if (!Files.exists(caminhoArquivo)) {
@@ -74,7 +68,8 @@ public class RegistroEventos {
         }
         try {
             for (String linha : Files.readAllLines(caminhoArquivo)) {
-                if (linha.isBlank()) continue;
+                if (linha.isBlank())
+                    continue;
                 @SuppressWarnings("unchecked")
                 Map<String, Object> evento = objectMapper.readValue(linha, Map.class);
                 Object detalhesObj = evento.get("detalhes");

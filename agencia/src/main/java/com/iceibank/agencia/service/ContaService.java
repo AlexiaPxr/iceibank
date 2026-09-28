@@ -11,20 +11,15 @@ import org.springframework.stereotype.Service;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/**
- * Contas em memoria (um Map por processo de agencia) - proposital neste
- * sprint, sem persistencia em banco de dados. Se o processo for reiniciado,
- * as contas somem: e esperado.
- */
 @Service
 public class ContaService {
 
     private final Map<Integer, Conta> contas = new ConcurrentHashMap<>();
     private final AgenciaProperties agenciaProperties;
-    private final RelogioLamport relogio;
+    private final RelogioVetorial relogio;
     private final RegistroEventos registro;
 
-    public ContaService(AgenciaProperties agenciaProperties, RelogioLamport relogio, RegistroEventos registro) {
+    public ContaService(AgenciaProperties agenciaProperties, RelogioVetorial relogio, RegistroEventos registro) {
         this.agenciaProperties = agenciaProperties;
         this.relogio = relogio;
         this.registro = registro;
@@ -34,7 +29,6 @@ public class ContaService {
         return agenciaProperties.agenciaResponsavel(idConta) == agenciaProperties.getIdAgencia();
     }
 
-    /** Usado internamente (ex.: login) - retorna null se nao existir, sem lancar excecao. */
     public Conta buscar(int id) {
         return contas.get(id);
     }
@@ -58,8 +52,8 @@ public class ContaService {
         Conta conta = new Conta(id, nomeAluno, senha, saldoInicial);
         contas.put(id, conta);
 
-        int ts = relogio.eventoLocal();
-        registro.registrar("CRIAR_CONTA", ts, Map.of(
+        int[] vetor = relogio.eventoLocal();
+        registro.registrar("CRIAR_CONTA", vetor, Map.of(
                 "id", id, "nomeAluno", nomeAluno, "saldoInicial", saldoInicial
         ));
 
@@ -70,8 +64,8 @@ public class ContaService {
         Conta conta = consultar(id);
         conta.setSaldo(conta.getSaldo() + valor);
 
-        int ts = relogio.eventoLocal();
-        registro.registrar("DEPOSITO", ts, Map.of("id", id, "valor", valor, "novoSaldo", conta.getSaldo()));
+        int[] vetor = relogio.eventoLocal();
+        registro.registrar("DEPOSITO", vetor, Map.of("id", id, "valor", valor, "novoSaldo", conta.getSaldo()));
 
         return conta;
     }
@@ -83,8 +77,8 @@ public class ContaService {
         }
         conta.setSaldo(conta.getSaldo() - valor);
 
-        int ts = relogio.eventoLocal();
-        registro.registrar("SAQUE", ts, Map.of("id", id, "valor", valor, "novoSaldo", conta.getSaldo()));
+        int[] vetor = relogio.eventoLocal();
+        registro.registrar("SAQUE", vetor, Map.of("id", id, "valor", valor, "novoSaldo", conta.getSaldo()));
 
         return conta;
     }
