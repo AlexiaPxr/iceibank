@@ -418,3 +418,21 @@ Em contraste, o par `TRANSFERENCIA_DEBITO [2,0,0]` e `TRANSFERENCIA_CREDITO_REMO
 Sim, seria um problema. Com n eventos há cerca de n²/2 pares, e cada comparação ainda custa O(k), com k o número de agências. Para 1 milhão de eventos são da ordem de 5 × 10¹¹ comparações, e o script ainda carrega todos os eventos na memória. No meu teste, com 5 eventos, o custo é irrelevante.
 
 Para escalar, algumas opções: não comparar todos os pares, e sim consultar só os eventos relevantes para uma pergunta específica, como "o que influenciou este evento?"; agrupar os eventos por agência (cada log já é totalmente ordenado pela própria posição do vetor) e comparar apenas fronteiras entre agências; processar em janelas de tempo, já que eventos distantes no tempo e já cobertos por mensagens trocadas deixam de poder ser concorrentes; guardar os eventos em um banco indexado por vetor, em vez de arquivos `.jsonl`; e paralelizar a análise por partição. Em sistemas reais costuma-se ainda limitar o que se registra, só pontos de interesse e não cada operação.
+
+
+
+
+
+## Funcionalidade adicional (seção 2.1) — Dead-letter queue
+
+**Funcionalidade escolhida:** dead-letter queue para créditos que falham no consumidor.
+
+**O que ela faz:** cada agência ganhou uma fila `fila-agencia-N.dlq`, ligada à exchange `iceibank.eventos.dlx`. A fila principal `fila-agencia-N` declara essa exchange como dead-letter exchange. Quando o consumidor não consegue aplicar um crédito (conta inexistente), ele registra o evento `CREDITO_REMOTO_FALHOU` no log, com o vetor, e rejeita a mensagem sem recolocá-la na fila (`AmqpRejectAndDontRequeueException`). O RabbitMQ então a encaminha para a DLQ, onde fica retida, com o cabeçalho `x-death` indicando a origem e o motivo.
+
+**Por que essa:** no teste de resiliência da Parte C, o crédito que chegou à Agência 1 sem conta de destino foi registrado em log e descartado com ack, e o valor sumiu sem rastro recuperável. A DLQ resolve essa parte: a mensagem não se perde e pode ser inspecionada (e, no futuro, reprocessada) depois que o problema for corrigido. Ela não resolve a consistência do sistema, porque o débito na origem continua sem ser revertido; isso depende de uma transação distribuída (Sprint 4).
+
+**Como testei:** transferi 30 da conta 0 para a conta 4 (Agência 1), que não existia. A API respondeu 200 (publicada), a Agência 1 registrou `CREDITO_REMOTO_FALHOU` e a `fila-agencia-1.dlq` passou a mostrar 1 mensagem, com a `fila-agencia-1` em 0. **Decisão:** não usei retentativas, porque cada uma chamaria `aoReceber` de novo e inflaria o relógio vetorial e o log, e uma conta inexistente não passa a existir sozinha.
+
+**Observação sobre a Parte C:** a resposta 2 da Parte C descreve o comportamento antes desta funcionalidade (mensagem descartada com ack, sem dead-letter). Esse ponto passa a ser tratado aqui.
+
+**Evidência:** `evidencias/sprint2/funcionalidade-adicional.png`.

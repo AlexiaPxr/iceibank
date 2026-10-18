@@ -9,6 +9,7 @@ import com.iceibank.agencia.mensageria.PublicadorEventos;
 import com.iceibank.agencia.model.Conta;
 import org.springframework.amqp.AmqpException;
 import org.springframework.stereotype.Service;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 
 import java.util.Map;
 
@@ -94,12 +95,11 @@ public class TransferenciaService {
         return "Transferência publicada para a agência de destino (entrega assíncrona).";
     }
 
-    /**
-     * Chamado pelo consumidor da fila (ConsumidorCreditos), nao mais por uma
-     * rota HTTP. Por isso NAO lanca excecao se a conta nao existir: nao ha
-     * chamador HTTP esperando uma resposta 404. Em vez disso, registra a
-     * falha no log e a mensagem e descartada (ack) - ver Parte C, pergunta 1,
-     * sobre o que acontece quando a conta some antes da mensagem chegar.
+        /**
+     * Chamado pelo consumidor da fila. Se a conta nao existe, registra o evento
+     * (com o vetor, regra 3) e REJEITA a mensagem sem recoloca-la na fila: o
+     * RabbitMQ a encaminha para a dead-letter queue desta agencia, em vez de a
+     * mensagem ser descartada com ack como no inicio do Sprint 2.
      */
     public synchronized void aplicarCreditoRemoto(int idConta, double valor, int[] vetorEnvio, int origemAgencia) {
         int[] vetor = relogio.aoReceber(vetorEnvio);
@@ -108,9 +108,9 @@ public class TransferenciaService {
         if (conta == null) {
             registro.registrar("CREDITO_REMOTO_FALHOU", vetor, Map.of(
                     "idConta", idConta, "valor", valor, "origemAgencia", origemAgencia,
-                    "motivo", "conta nao encontrada"
+                    "motivo", "conta nao encontrada", "destino", "dead-letter queue"
             ));
-            return;
+            throw new AmqpRejectAndDontRequeueException("Conta " + idConta + " não encontrada nesta agência.");
         }
 
         conta.setSaldo(conta.getSaldo() + valor);
