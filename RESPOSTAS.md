@@ -361,3 +361,28 @@ São concorrentes. Comparando posição a posição:
 - Posição 2: 0 e 0, iguais.
 
 Como V1 é maior em uma posição e V2 é maior em outra, nem V1 ≤ V2 nem V2 ≤ V1. Nenhum dos dois eventos "conhecia" o outro: a agência 0 já tinha feito 3 eventos que a agência 1 ainda não tinha visto (V1[0]=3 contra 1), e a agência 1 tinha feito 3 eventos que a agência 0 não tinha visto (V2[1]=3 contra 1). Isso é exatamente o que o Lamport não conseguia afirmar: dois números diferentes não diriam se havia causalidade, e aqui o vetor prova que não há.
+
+
+## Parte C — Publish/Subscribe entre agências
+
+**1. No passo 4 da tarefa, o que aconteceu exatamente quando a Agência 1 voltou? Se a mensagem "sumiu" (não foi aplicada), isso foi porque a mensageria falhou, ou por outro motivo? Explique com base no que você observou no log.**
+
+Derrubei a Agência 1 e transferi 30 da conta 0 (Ana) para a conta 1 (Bruno). A API respondeu normalmente ("Transferência publicada para a agência de destino"), e no RabbitMQ Manager a `fila-agencia-1` passou a mostrar Ready = 1 e Total = 1, enquanto as outras filas ficaram em 0. Ou seja, a mensagem ficou retida no broker, gravada em disco.
+
+Quando subi a Agência 1 de novo, o consumidor recebeu a mensagem imediatamente e a fila voltou a 0 (entregue e confirmada com ack). Mas o log da Agência 1 mostrou `[Vetor [3, 1, 0]] CREDITO_REMOTO_FALHOU {idConta=1, valor=30.0, origemAgencia=0, motivo=conta nao encontrada}`, e a tentativa de login do Bruno retornou 401.
+
+A mensageria não falhou: a mensagem foi entregue. O motivo do "sumiço" foi outro: as contas ficam só em memória (um `ConcurrentHashMap`), então, quando a Agência 1 reiniciou, a conta do Bruno deixou de existir. O crédito chegou, mas não encontrou onde ser aplicado. O vetor `[3, 1, 0]` confirma que a regra 3 foi aplicada: a posição 0 (valor 3) veio da mensagem da Agência 0, e a posição 1 (valor 1) é o primeiro evento da Agência 1 após reiniciar. Os 30 reais saíram da conta da Ana (saldo 70) e não entraram em lugar nenhum.
+
+**2. Compare esse comportamento com o do Sprint 1 (chamada REST direta): o que melhorou com a mensageria, e o que continua sendo um problema em aberto (dica: pense na diferença entre "a mensagem não se perde" e "o sistema está correto")?**
+
+O que melhorou: no Sprint 1, com a agência de destino fora do ar, a chamada REST falhava na hora (Connection refused, resposta 502) e o crédito nunca era tentado de novo. Agora a mensagem fica retida na fila durável e é entregue quando a agência volta, sem a origem precisar saber se o destino está no ar (desacoplamento no tempo). A resposta ao cliente também mudou de sentido: 200 passou a significar "mensagem publicada", e não "crédito aplicado".
+
+O que continua em aberto: "a mensagem não se perde" não é o mesmo que "o sistema está correto". Neste teste a mensagem foi entregue e, mesmo assim, o dinheiro sumiu. O débito na origem continua sendo aplicado antes e sem reversão, e não há nenhuma ligação entre o débito e o resultado do crédito. Se o crédito falha (conta inexistente, agência reiniciada), a origem nunca fica sabendo, e o único rastro é o evento `CREDITO_REMOTO_FALHOU` no log do destino. Além disso, a mensagem é descartada com ack mesmo quando falha, então não há nova tentativa nem dead-letter queue. Faltam persistência das contas e uma transação distribuída (2PC ou Saga), que é o assunto do Sprint 4.
+
+**3. O consumidor de mensagens (`assinar`) processa créditos sem passar por nenhuma verificação de token JWT. Isso é um problema de segurança? Por que sim, ou por que não - pense em quem consegue publicar uma mensagem na exchange do RabbitMQ hoje, no seu ambiente de desenvolvimento.**
+
+Sim, é um problema, embora de natureza diferente do das rotas HTTP. O listener não é uma rota do Express (ou do Spring MVC), então não passa pelo `JwtAuthFilter` e não tem como carregar um cabeçalho de token. A confiança aqui está na própria exchange: o consumidor assume que toda mensagem na fila foi publicada por uma agência legítima.
+
+No meu ambiente, quem pode publicar na exchange é qualquer pessoa que tenha a URL AMQP da instância do CloudAMQP, que contém usuário e senha. Essa URL já apareceu em tela e em conversa durante o desenvolvimento, então tive que considerar a senha comprometida e trocá-la. Com a URL, alguém poderia publicar uma mensagem `agencia.1.creditar` com qualquer `idConta` e `valor`, e a agência aplicaria o crédito sem questionar: não há autenticação da origem, assinatura da mensagem nem validação do campo `origemAgencia`, que é só um número dentro do corpo. Também não há limite de valor.
+
+Para mitigar, seria preciso: usar usuários e permissões distintos por agência no RabbitMQ (só a Agência 0 publica como origem 0, por exemplo), assinar as mensagens (um HMAC ou um JWT dentro do corpo, validado pelo consumidor), validar os dados recebidos e guardar a URL em um segredo fora do código e do histórico do repositório. No Sprint 1 a chamada entre agências carregava um token interno; ao migrar para mensageria esse token deixou de existir, então a proteção passou da camada HTTP para a camada do broker.
