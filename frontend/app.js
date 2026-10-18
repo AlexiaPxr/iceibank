@@ -124,7 +124,7 @@ function renderHistorico(eventos) {
     .map(
       (ev) => `
       <div class="evento">
-        <span class="tipo">${ev.tipo}</span> — Lamport ${ev.timestampLamport}
+        <span class="tipo">${ev.tipo}</span> — Vetor ${JSON.stringify(ev.timestampVetorial)}
         <div class="meta">${ev.horaParede} · ${JSON.stringify(ev.detalhes)}</div>
       </div>`
     )
