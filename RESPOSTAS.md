@@ -363,6 +363,7 @@ São concorrentes. Comparando posição a posição:
 Como V1 é maior em uma posição e V2 é maior em outra, nem V1 ≤ V2 nem V2 ≤ V1. Nenhum dos dois eventos "conhecia" o outro: a agência 0 já tinha feito 3 eventos que a agência 1 ainda não tinha visto (V1[0]=3 contra 1), e a agência 1 tinha feito 3 eventos que a agência 0 não tinha visto (V2[1]=3 contra 1). Isso é exatamente o que o Lamport não conseguia afirmar: dois números diferentes não diriam se havia causalidade, e aqui o vetor prova que não há.
 
 
+
 ## Parte C — Publish/Subscribe entre agências
 
 **1. No passo 4 da tarefa, o que aconteceu exatamente quando a Agência 1 voltou? Se a mensagem "sumiu" (não foi aplicada), isso foi porque a mensageria falhou, ou por outro motivo? Explique com base no que você observou no log.**
@@ -386,3 +387,34 @@ Sim, é um problema, embora de natureza diferente do das rotas HTTP. O listener 
 No meu ambiente, quem pode publicar na exchange é qualquer pessoa que tenha a URL AMQP da instância do CloudAMQP, que contém usuário e senha. Essa URL já apareceu em tela e em conversa durante o desenvolvimento, então tive que considerar a senha comprometida e trocá-la. Com a URL, alguém poderia publicar uma mensagem `agencia.1.creditar` com qualquer `idConta` e `valor`, e a agência aplicaria o crédito sem questionar: não há autenticação da origem, assinatura da mensagem nem validação do campo `origemAgencia`, que é só um número dentro do corpo. Também não há limite de valor.
 
 Para mitigar, seria preciso: usar usuários e permissões distintos por agência no RabbitMQ (só a Agência 0 publica como origem 0, por exemplo), assinar as mensagens (um HMAC ou um JWT dentro do corpo, validado pelo consumidor), validar os dados recebidos e guardar a URL em um segredo fora do código e do histórico do repositório. No Sprint 1 a chamada entre agências carregava um token interno; ao migrar para mensageria esse token deixou de existir, então a proteção passou da camada HTTP para a camada do broker.
+
+
+
+
+## Parte D — Linha do tempo causal
+
+**1. No Sprint 1, o relógio de Lamport não permitia essa análise (dois timestamps diferentes não davam certeza sobre concorrência). O que exatamente, no relógio vetorial, torna possível essa comparação confiável?**
+
+No Lamport, cada evento tem um único número, e a ordem entre números só informa uma direção: se A aconteceu antes de B, então T(A) < T(B). A volta não vale, então T(A) < T(B) não prova que A influenciou B. Esse número único resume tudo o que o processo sabe em um só valor, e perde a informação de quem contribuiu com o quê.
+
+No relógio vetorial, cada evento guarda um contador por agência, ou seja, o que aquele processo sabia sobre cada agência no momento do evento. Isso torna a comparação confiável nos dois sentidos: V1 aconteceu antes de V2 se, e somente se, V1[i] ≤ V2[i] em todas as posições (e os vetores são diferentes). Se nenhum dos dois vetores é menor ou igual ao outro, os eventos são concorrentes, porque nenhum dos dois conhecia o outro. É essa equivalência (nos dois sentidos) que o Lamport não tinha, e que o `compararVetores` do meu `MesclarLogs` implementa.
+
+**2. Encontre, no seu próprio teste, um par de eventos que o script classificou como concorrente. Faz sentido, olhando para o que cada evento representa? Explique por que eles realmente não têm relação de causa e efeito entre si.**
+
+O par que escolhi foi `[agencia-2] CRIAR_CONTA [0, 0, 1]` × `[agencia-1] TRANSFERENCIA_CREDITO_REMOTO [3, 2, 0]`.
+
+Comparando posição a posição:
+
+- Posição 0: 0 contra 3, então V1 < V2.
+- Posição 1: 0 contra 2, então V1 < V2.
+- Posição 2: 1 contra 0, então V1 > V2.
+
+V1 é menor em duas posições e maior em uma, então nem V1 ≤ V2 nem V2 ≤ V1: são concorrentes. Faz sentido pelo que cada evento representa. A criação da conta da Carla aconteceu só na Agência 2, e a Agência 2 não participou da transferência: não enviou nem recebeu nenhuma mensagem. O crédito remoto é consequência de uma transferência entre as agências 0 e 1. O vetor do crédito tem 0 na posição 2, ou seja, a Agência 1 nunca soube da existência de nenhum evento da Agência 2, e o vetor da criação da Carla tem 0 nas posições 0 e 1, ou seja, a Agência 2 nunca soube de nada das outras. Sem nenhum caminho de mensagens ligando os dois, não pode haver causa e efeito.
+
+Em contraste, o par `TRANSFERENCIA_DEBITO [2,0,0]` e `TRANSFERENCIA_CREDITO_REMOTO [3,2,0]` aparece como causal: 2 ≤ 3, 0 ≤ 2 e 0 ≤ 0. É a regra 3 em ação, já que o crédito carregava o `[3,...]` da mensagem. O script os classifica corretamente como "antes", e não como concorrentes.
+
+**3. O algoritmo de comparação de vetores neste script é O(n²) no número de eventos (compara todos os pares). Isso seria um problema em um sistema real com milhões de eventos? O que se poderia fazer para tornar essa análise mais escalável?**
+
+Sim, seria um problema. Com n eventos há cerca de n²/2 pares, e cada comparação ainda custa O(k), com k o número de agências. Para 1 milhão de eventos são da ordem de 5 × 10¹¹ comparações, e o script ainda carrega todos os eventos na memória. No meu teste, com 5 eventos, o custo é irrelevante.
+
+Para escalar, algumas opções: não comparar todos os pares, e sim consultar só os eventos relevantes para uma pergunta específica, como "o que influenciou este evento?"; agrupar os eventos por agência (cada log já é totalmente ordenado pela própria posição do vetor) e comparar apenas fronteiras entre agências; processar em janelas de tempo, já que eventos distantes no tempo e já cobertos por mensagens trocadas deixam de poder ser concorrentes; guardar os eventos em um banco indexado por vetor, em vez de arquivos `.jsonl`; e paralelizar a análise por partição. Em sistemas reais costuma-se ainda limitar o que se registra, só pontos de interesse e não cada operação.
