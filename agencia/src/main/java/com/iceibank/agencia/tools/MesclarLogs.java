@@ -123,7 +123,7 @@ public class MesclarLogs {
                 if (i == j || a.agencia().equals(b.agencia()) || a.vetor().length != b.vetor().length) continue;
                 if (comparar(a.vetor(), b.vetor()) == Relacao.ANTES) {
                     causais++;
-                    System.out.println(a.descricao() + "  →  " + b.descricao());
+                    System.out.println(a.descricao() + "  ->  " + b.descricao());
                 }
             }
         }
