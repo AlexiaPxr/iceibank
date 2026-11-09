@@ -435,4 +435,4 @@ Para escalar, algumas opções: não comparar todos os pares, e sim consultar s�
 
 **Observação sobre a Parte C:** a resposta 2 da Parte C descreve o comportamento antes desta funcionalidade (mensagem descartada com ack, sem dead-letter). Esse ponto passa a ser tratado aqui.
 
-**Evidência:** `evidencias/sprint2/funcionalidade-adicional.png`.
+**Evidência:** `evidencias/sprint2/funcionalidade-adicional.png`. 
