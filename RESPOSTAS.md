@@ -436,3 +436,22 @@ Para escalar, algumas opções: não comparar todos os pares, e sim consultar s�
 **Observação sobre a Parte C:** a resposta 2 da Parte C descreve o comportamento antes desta funcionalidade (mensagem descartada com ack, sem dead-letter). Esse ponto passa a ser tratado aqui.
 
 **Evidência:** `evidencias/sprint2/funcionalidade-adicional.png`. 
+
+
+
+
+# SPRINT 3
+
+## Parte A — Mensagens de eleição e coordenador
+
+**1. Por que o Bully elege o maior ID, e não o menor? O resultado mudaria se a regra fosse invertida?**
+
+O algoritmo só precisa de uma ordem total, conhecida por todas as agências, para decidir quem tem prioridade; "maior ID vence" é a convenção do algoritmo original (Garcia-Molina, 1982): quem inicia uma eleição consulta apenas os processos de ID maior que o seu. Se a regra fosse invertida (menor ID vence), o algoritmo continuaria correto, pois bastaria trocar a comparação (`a.id < idAgencia`) e a agência 0 passaria a ser a líder preferida. O que importa é que todos usem o mesmo critério. Na prática, a única diferença seria qual agência assume a liderança quando todas estão ativas.
+
+**2. Mais de uma agência declarou `TORNOU_LIDER` na subida. É um bug?**
+
+É comportamento esperado do algoritmo, e não um bug. Nos logs da subida, a agência 0 declarou `TORNOU_LIDER` ([4,0,0]) porque as agências 1 e 2 ainda não estavam no ar e ninguém de ID maior respondeu. Em seguida a agência 1 subiu e também se declarou líder ([0,3,0]); a agência 0 recebeu `LIDER_ANUNCIADO` com `liderId=1` ([7,4,0]). Por fim a agência 2 subiu, se declarou líder ([0,0,2]) e anunciou o resultado: a agência 0 registrou `LIDER_ANUNCIADO` com `liderId=2` ([8,4,3]) e a agência 1 também ([0,6,4]). Cada agência só enxerga as que estão ativas naquele instante, então a "líder" é uma crença local e provisória até aparecer alguém de ID maior. O que o algoritmo garante é a convergência, e não que exista uma única declaração durante a subida: no final, as três agências responderam `liderAtual = 2` em `/bully/lider`.
+
+**3. `/bully/eleicao` não tem autenticação. É um problema real de segurança?**
+
+É um problema real, embora de impacto limitado nesta sprint. Qualquer processo que alcance a URL de uma agência pode disparar eleições repetidas, causando instabilidade na liderança. Pior: `/bully/coordenador` também é aberto, então um processo externo poderia anunciar um `liderId` falso e as agências o aceitariam sem verificar. Como a líder é só informativa nesta sprint, o dano fica restrito ao painel do app; no Sprint 4, quando a líder passar a coordenar transações distribuídas (2PC), uma líder falsa poderia manipular transações. Como mitigação, seria preciso autenticar as chamadas entre agências (por exemplo, com um segredo compartilhado ou token interno, como existia no Sprint 1) e restringir essas rotas à rede interna. Nesta entrega, `/bully/**` ficou fora do JWT de propósito, porque as agências não têm usuário para se autenticar entre si e `/bully/lider` precisa ser lido pelo app.
