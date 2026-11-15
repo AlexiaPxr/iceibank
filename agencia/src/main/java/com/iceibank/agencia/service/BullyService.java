@@ -9,6 +9,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -31,6 +33,10 @@ import com.iceibank.agencia.config.AgenciaProperties.AgenciaInfo;
 public class BullyService {
 
     private static final long TIMEOUT_MS = 1000;
+    private static final long INTERVALO_HEARTBEAT_MS = 3000;
+    // Quantas verificacoes SEGUIDAS precisam falhar antes de declarar a lider morta.
+    // Com 1, uma unica resposta lenta (maquina sobrecarregada) ja derrubava a lider.
+    private static final int FALHAS_PARA_DECLARAR_MORTA = 2;
 
     private final int idAgencia;
     private final AgenciaProperties agenciaProperties;
@@ -50,7 +56,17 @@ public class BullyService {
         return thread;
     });
 
+    // Heartbeat (Parte B): uma thread que, de tempos em tempos, confere se a lider
+    // conhecida ainda responde. scheduleWithFixedDelay evita verificacoes
+    // sobrepostas se uma demorar (ex.: lider fora do ar = espera o timeout).
+    private final ScheduledExecutorService agendador = Executors.newSingleThreadScheduledExecutor(tarefa -> {
+        Thread thread = new Thread(tarefa, "bully-heartbeat");
+        thread.setDaemon(true);
+        return thread;
+    });
+
     private volatile Integer liderAtual = null;
+    private volatile int falhasConsecutivas = 0; // so a thread do heartbeat incrementa
     private final AtomicBoolean eleicaoEmAndamento = new AtomicBoolean(false);
 
     public BullyService(AgenciaProperties agenciaProperties, RelogioVetorial relogio, RegistroEventos registro) {
@@ -60,10 +76,14 @@ public class BullyService {
         this.registro = registro;
     }
 
-    /** Ao subir, cada agencia dispara sua propria eleicao para descobrir (ou estabelecer) a lider. */
+    /**
+     * Ao subir, cada agencia dispara sua propria eleicao para descobrir (ou
+     * estabelecer) a lider e passa a monitora-la com o heartbeat.
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void aoIniciar() {
         iniciarEleicaoEmSegundoPlano();
+        iniciarHeartbeat(INTERVALO_HEARTBEAT_MS);
     }
 
     public void iniciarEleicaoEmSegundoPlano() {
@@ -129,9 +149,63 @@ public class BullyService {
     }
 
     public void receberCoordenador(int liderId, int[] vetorRecebido) {
-        liderAtual = liderId;
         int[] vetor = relogio.aoReceber(vetorRecebido);
+
+        // Regra do Bully: so aceito como lider quem tem id MAIOR (ou igual) ao meu.
+        // Se um id menor se declarou lider, eu estou vivo e tenho mais direito:
+        // ignoro o anuncio e conduzo minha propria eleicao.
+        if (liderId < idAgencia) {
+            registro.registrar("COORDENADOR_IGNORADO", vetor, Map.of("liderId", liderId, "agencia", idAgencia));
+            iniciarEleicaoEmSegundoPlano();
+            return;
+        }
+
+        liderAtual = liderId;
+        falhasConsecutivas = 0;
         registro.registrar("LIDER_ANUNCIADO", vetor, Map.of("liderId", liderId, "agencia", idAgencia));
+    }
+
+    /** Inicia a verificacao periodica da lider (Parte B). */
+    public void iniciarHeartbeat(long intervaloMs) {
+        agendador.scheduleWithFixedDelay(this::verificarLiderSeguro, intervaloMs, intervaloMs,
+                TimeUnit.MILLISECONDS);
+    }
+
+    // Uma excecao nao tratada cancelaria TODAS as execucoes futuras do agendador.
+    private void verificarLiderSeguro() {
+        try {
+            verificarLider();
+        } catch (RuntimeException e) {
+            System.err.println("[Bully] erro no heartbeat: " + e);
+        }
+    }
+
+    void verificarLider() {
+        Integer lider = liderAtual;
+        if (lider == null) {
+            iniciarEleicao();
+            return;
+        }
+        if (lider == idAgencia) {
+            falhasConsecutivas = 0;
+            return; // eu sou a lider, nada a verificar
+        }
+
+        if (consultar(agenciaProperties.urlDaAgencia(lider) + "/bully/lider")) {
+            falhasConsecutivas = 0;
+            return;
+        }
+
+        falhasConsecutivas++;
+        if (falhasConsecutivas < FALHAS_PARA_DECLARAR_MORTA) {
+            return; // pode ser so uma resposta lenta: tenta de novo no proximo ciclo
+        }
+
+        falhasConsecutivas = 0;
+        int[] vetor = relogio.eventoLocal();
+        registro.registrar("LIDER_NAO_RESPONDEU", vetor, Map.of("liderAtual", lider, "agencia", idAgencia));
+        liderAtual = null;
+        iniciarEleicao();
     }
 
     public Integer obterLiderAtual() {
@@ -140,6 +214,23 @@ public class BullyService {
 
     public int getIdAgencia() {
         return idAgencia;
+    }
+
+    /** GET com timeout; true so se a agencia respondeu com 2xx. */
+    private boolean consultar(String url) {
+        try {
+            HttpRequest requisicao = HttpRequest.newBuilder(URI.create(url))
+                    .timeout(Duration.ofMillis(TIMEOUT_MS))
+                    .GET()
+                    .build();
+            HttpResponse<Void> resposta = http.send(requisicao, HttpResponse.BodyHandlers.discarding());
+            return resposta.statusCode() >= 200 && resposta.statusCode() < 300;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     /** POST JSON com timeout; true so se a agencia respondeu com 2xx. */
