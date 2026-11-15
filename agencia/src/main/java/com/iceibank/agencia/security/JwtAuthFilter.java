@@ -42,7 +42,11 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         // Sem essa excecao, ninguem conseguiria criar a primeira conta.
         boolean ehCriarConta = "/contas".equals(caminho) && "POST".equalsIgnoreCase(metodo);
 
-        if (ehLogin || ehCriarConta || "OPTIONS".equalsIgnoreCase(metodo)) {
+        // Rotas do Bully: chamadas entre agencias (e consulta da lider pelo app),
+        // sem credencial - as agencias nao tem usuario para se autenticar entre si.
+        boolean ehBully = caminho.startsWith("/bully/");
+
+        if (ehLogin || ehCriarConta || ehBully || "OPTIONS".equalsIgnoreCase(metodo)) {
             filterChain.doFilter(request, response);
             return;
         }
