@@ -491,3 +491,40 @@ O app consulta uma agência por vez e continua usando a última que respondeu, e
 **3. O que foi reaproveitado do frontend web do Sprint 1 e o que precisou ser repensado no mobile?**
 
 Reaproveitamos os conceitos: o mesmo contrato da API (REST com JWT no header `Authorization: Bearer` e erros no formato `{"erro": "..."}`), um wrapper único de chamadas que centraliza o tratamento de 401 (o `chamarApi` virou o `ApiClient`), a separação entre estado, telas e lógica (o MVC do web virou `AppState`, telas e `LiderService`), e o particionamento das contas por `id % 3`. No web a pessoa escolhe a URL da agência num seletor; no app a agência é deduzida do número da conta. O que mudou por ser mobile: o app roda em outro dispositivo, então o emulador acessa o computador por `10.0.2.2` (e HTTP sem TLS exigiu liberar `usesCleartextTraffic` no Android), não existe CORS porque não há navegador, o token precisa ser guardado no aparelho (`shared_preferences`, no lugar do `localStorage`), o sistema operacional pode encerrar o app a qualquer momento, e a rede móvel é instável e consome bateria. Isso motiva a consulta periódica econômica da Parte D e o modo offline-first da Parte F.
+
+
+---
+
+## Parte E — Sincronização offline-first no backend
+
+**Evidência:** `evidencias/sprint3/conflito-sincronizacao.png` (409 ao sincronizar com o vetor antigo; 200 ao reenviar com o `vetorAtual` devolvido no conflito). Implementação: `CompararVetores.java`, `SincronizarRequest.java` e `ContasController` (`GET /contas/{id}` devolve `vetorAtual`; `POST /contas/{id}/sincronizar`).
+
+**1. Por que comparar o vetor inteiro e não só o saldo?**
+O saldo só diz *o que* a conta vale agora, não *se algo aconteceu* desde a última leitura do app. Dois casos mostram a diferença: (a) um depósito de R$ 10 e um saque de R$ 10 feitos enquanto o app estava offline deixam o saldo idêntico, mas o estado mudou e a operação pendente foi planejada sobre um histórico que não existe mais; a comparação de saldo não vê nada, o vetor avançou e vê. (b) Com saldo igual, uma operação que depende de ordem (por exemplo um saque que só era seguro antes de outro saque) seria aplicada às cegas. O vetor registra a causalidade: se o `vetorConhecido` do app é igual ao atual, nenhum evento ocorreu depois da leitura; se é menor, o app trabalhou com uma visão antiga; se é concorrente, houve eventos que o app não viu. Isso detecta mudanças que o saldo esconde.
+
+**2. Por que qualquer mudança no vetor da agência é conflito?**
+O vetor é mantido **por agência**, não por conta: cada evento local da agência (depósito de qualquer conta, uma eleição Bully, uma falha de heartbeat) incrementa a mesma posição. Assim, o vetor não distingue "mudou a minha conta" de "mudou outra conta da mesma agência", e a comparação trata os dois como conflito (falso positivo). No nosso sistema isso é ainda mais visível, porque os eventos do Bully (eleição, anúncio de líder, falha do líder) também avançam o vetor, então até a instabilidade de liderança pode gerar um 409. A simplificação existe porque é barata e segura (nunca deixa passar um conflito real). Para detectar por conta seria preciso manter um vetor (ou um número de versão) **por conta**, atualizado apenas pelas operações daquela conta, e o app guardaria e enviaria o vetor da sua conta. Assim, uma operação em outra conta, ou um evento do Bully, não causaria conflito.
+
+**3. O que o app deve fazer após um 409?**
+Perguntar à pessoa usuária. Descartar em silêncio perde uma operação que a pessoa fez de boa-fé (ela viu o saldo subir). Reenviar automaticamente é perigoso: o estado mudou e a decisão original pode não valer mais (um saque feito com o saldo antigo pode zerar a conta de forma inesperada). Como é dinheiro, quem decide é a pessoa, com a informação certa: o app mostra a operação pendente e o saldo real atual da agência (que veio no `contaAtual` do 409) e oferece "Aplicar mesmo assim" ou "Descartar operação". O detalhe da implementação está na Parte F.
+
+---
+
+## Parte F — App offline-first
+
+**Evidências:** `app-offline.png` (operação pendente sem erro), `app-sincronizacao.png` (sincronização automática ao reconectar) e `app-conflito.png` (diálogo do 409), todas em `evidencias/sprint3/`.
+
+**1. Qual biblioteca de armazenamento local e por quê?**
+Usei `shared_preferences`, guardando um JSON por conta (`iceibank_cache_<id>`) com o saldo, o último `vetorAtual` conhecido e a fila de operações pendentes. Motivos: o volume é muito pequeno (um saldo, um vetor de 3 inteiros e poucas operações), já estava no projeto (guarda o token), funciona em Android e no Chrome (onde rodamos a demo) e eliminou o custo de configurar esquema e migrações num prazo curto. Alternativas consideradas: `sqflite` (bom para muitos registros e consultas, mas exagerado aqui e sem suporte em Flutter Web), Hive e Drift (também adequados, mas exigem geração de código ou configuração extra). Trade-off: `shared_preferences` não é transacional nem cifrado; num app real eu migraria a fila para um banco local e guardaria o token em armazenamento seguro. Também não usei `connectivity_plus`: o app tenta sincronizar a cada 5 s e, ao voltar a conexão, a fila é enviada sozinha, o que cobre o mesmo caso sem depender do estado de rede reportado pelo sistema (que pode dizer "online" sem alcançar a agência).
+
+**2. O que aconteceu na tela quando a sincronização foi recusada (409)?**
+Com o app offline, depositei R$ 10 (ficou pendente) e, por outro caminho, fiz um depósito direto na mesma conta pela API, o que avançou o vetor da agência. Ao reconectar, o app enviou a operação com o vetor antigo e a agência respondeu 409. O app **não aplicou nem descartou nada sozinho**: abriu um diálogo "Conflito de sincronização (409)" mostrando a operação pendente, o saldo real atual da agência e duas opções: "Aplicar mesmo assim" (adota o `vetorAtual` devolvido e reenvia a operação) e "Descartar operação" (remove da fila e volta ao saldo real, reaplicando só o que continua pendente). Enquanto o conflito não é resolvido, a fila para: nenhuma operação seguinte passa na frente. Escolhi esse comportamento pelas razões da Parte E, pergunta 3: em dinheiro, a decisão deve ser da pessoa, com o saldo verdadeiro à vista.
+
+**3. Qual o risco da UI otimista num app bancário e como o design reduz?**
+O risco é mostrar como feito um dinheiro que a agência ainda não confirmou: a pessoa pode gastar um saldo que não existe, ou acreditar que um depósito entrou quando ele será recusado ou conflitar. Mitigações no app: (a) a operação pendente aparece num cartão laranja próprio ("PENDENTE de sincronização"), com a lista das operações e o indicador "OFFLINE"; (b) o saldo mostra o aviso "Saldo otimista: inclui operações pendentes ainda não confirmadas"; (c) saques offline são validados contra o saldo local, então não deixam gastar mais do que o saldo otimista; (d) a agência continua sendo a fonte da verdade: só aplica se o vetor bater (senão 409) e valida saldo no servidor (400 se insuficiente, e o app descarta a operação e avisa); (e) o conflito é resolvido pela pessoa, e a fila é enviada em ordem. Limitação: a transferência não tem modo offline, só depósito e saque.
+
+---
+
+## Funcionalidade adicional
+
+Não houve tempo de implementar uma funcionalidade adicional nova neste sprint. O histórico de transações por conta (`GET /contas/{id}/historico`, do Sprint 1) continua disponível e o histórico de liderança (Parte C) cobre a observabilidade.
