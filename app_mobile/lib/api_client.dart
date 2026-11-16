@@ -32,13 +32,20 @@ class ApiClient {
   final http.Client _http;
   static const Duration _timeout = Duration(seconds: 8);
 
+  /// Modo de teste: finge que a rede caiu (todas as chamadas falham como "sem conexao").
+  static bool simularOffline = false;
+
   Future<Map<String, dynamic>> chamar(
     String baseUrl,
     String caminho, {
     String metodo = 'GET',
     Map<String, dynamic>? corpo,
     String? token,
+    bool ignorarSimulacao = false,
   }) async {
+    if (simularOffline && !ignorarSimulacao) {
+      throw ApiException('Modo offline simulado: sem conexão com a agência.', semConexao: true);
+    }
     final uri = Uri.parse('$baseUrl$caminho');
     final headers = <String, String>{
       'Content-Type': 'application/json',

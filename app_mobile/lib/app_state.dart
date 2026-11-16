@@ -286,6 +286,54 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // ---------------- Modo de teste ----------------
+
+  bool get simulandoOffline => ApiClient.simularOffline;
+
+  /// Liga/desliga a "queda de rede" simulada. Ao desligar, sincroniza na hora.
+  void definirSimularOffline(bool valor) {
+    ApiClient.simularOffline = valor;
+    offline = valor;
+    notifyListeners();
+    if (!valor) sincronizar();
+  }
+
+  /// Faz um deposito direto na agencia (fora da fila), como se outro aparelho
+  /// tivesse mexido na conta: o vetor da agencia avanca e a proxima sincronizacao da 409.
+  Future<void> simularMudancaExterna(double valor) async {
+    await _api.chamar(
+      _urlDaConta,
+      '/contas/$idConta/depositar',
+      metodo: 'POST',
+      corpo: {'valor': valor},
+      token: token,
+      ignorarSimulacao: true,
+    );
+    avisoSync = 'Mudança externa simulada: depósito direto de R\$ ${valor.toStringAsFixed(2)} na agência. '
+        'O vetor da agência avançou.';
+    notifyListeners();
+  }
+
+  /// Cria as contas 0, 1 e 2 (senha 123, saldo 100) - uma por agencia.
+  Future<String> criarContasDeTeste() async {
+    final criadas = <int>[];
+    final jaExistiam = <int>[];
+    for (var id = 0; id < numeroAgencias; id++) {
+      try {
+        await criarConta(id, 'Conta $id', '123', 100);
+        criadas.add(id);
+      } on ApiException catch (e) {
+        if (e.status == 409) {
+          jaExistiam.add(id);
+        } else {
+          rethrow;
+        }
+      }
+    }
+    return 'Criadas: ${criadas.isEmpty ? 'nenhuma' : criadas.join(', ')}'
+        '${jaExistiam.isEmpty ? '' : ' · já existiam: ${jaExistiam.join(', ')}'} (senha 123, saldo R\$ 100).';
+  }
+
   /// Transferencia local ou entre agencias (a propria agencia decide pelo id de destino).
   Future<String> transferir(int idDestino, double valor) async {
     final resultado = await _autenticado(

@@ -26,6 +26,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _carregando = false;
   Mensagem? _msgLogin;
   Mensagem? _msgCriar;
+  Mensagem? _msgTeste;
 
   @override
   void initState() {
@@ -89,13 +90,55 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  Future<void> _criarContasDeTeste() async {
+    setState(() {
+      _carregando = true;
+      _msgTeste = null;
+    });
+    try {
+      final texto = await widget.app.criarContasDeTeste();
+      if (mounted) setState(() => _msgTeste = Mensagem(texto, false));
+    } on ApiException catch (e) {
+      if (mounted) setState(() => _msgTeste = Mensagem(e.mensagem, true));
+    } finally {
+      if (mounted) setState(() => _carregando = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final cores = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('ICEIBank')),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
+      body: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Container(
+                margin: const EdgeInsets.only(top: 24, bottom: 20),
+                padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(24),
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [cores.primary, const Color(0xFF1E88E5)],
+                  ),
+                ),
+                child: const Column(
+                  children: [
+                    Icon(Icons.account_balance, color: Colors.white, size: 48),
+                    SizedBox(height: 10),
+                    Text('ICEIBank',
+                        style: TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w800)),
+                    SizedBox(height: 4),
+                    Text('Banco distribuído · 3 agências',
+                        style: TextStyle(color: Colors.white70)),
+                  ],
+                ),
+              ),
           Card(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -107,13 +150,13 @@ class _LoginScreenState extends State<LoginScreen> {
                   TextField(
                     controller: _id,
                     keyboardType: TextInputType.number,
-                    decoration: const InputDecoration(labelText: 'Número da conta', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: 'Número da conta'),
                   ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _senha,
                     obscureText: true,
-                    decoration: const InputDecoration(labelText: 'Senha', border: OutlineInputBorder()),
+                    decoration: const InputDecoration(labelText: 'Senha'),
                   ),
                   const SizedBox(height: 12),
                   FilledButton(
@@ -128,6 +171,26 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
           Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text('Modo de teste', style: Theme.of(context).textTheme.titleMedium),
+                  const SizedBox(height: 4),
+                  const Text('Cria as contas 0, 1 e 2 (uma por agência), senha 123 e saldo R\$ 100.'),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    onPressed: _carregando ? null : _criarContasDeTeste,
+                    icon: const Icon(Icons.science),
+                    label: const Text('Criar contas de teste (0, 1 e 2)'),
+                  ),
+                  MensagemBox(_msgTeste),
+                ],
+              ),
+            ),
+          ),
+          Card(
             child: ExpansionTile(
               title: const Text('Criar conta'),
               childrenPadding: const EdgeInsets.all(16),
@@ -135,24 +198,24 @@ class _LoginScreenState extends State<LoginScreen> {
                 TextField(
                   controller: _novoId,
                   keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Número da conta', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'Número da conta'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _novoNome,
-                  decoration: const InputDecoration(labelText: 'Nome', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'Nome'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _novaSenha,
                   obscureText: true,
-                  decoration: const InputDecoration(labelText: 'Senha', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'Senha'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _novoSaldo,
                   keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(labelText: 'Saldo inicial', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: 'Saldo inicial'),
                 ),
                 const SizedBox(height: 12),
                 OutlinedButton(onPressed: _carregando ? null : _criarConta, child: const Text('Criar conta')),
@@ -160,7 +223,9 @@ class _LoginScreenState extends State<LoginScreen> {
               ],
             ),
           ),
-        ],
+            ],
+          ),
+        ),
       ),
     );
   }
