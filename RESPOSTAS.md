@@ -525,6 +525,12 @@ O risco é mostrar como feito um dinheiro que a agência ainda não confirmou: a
 
 ---
 
-## Funcionalidade adicional
+## Funcionalidade adicional (Sprint 3) — Indicador de agências ativas
 
-Não houve tempo de implementar uma funcionalidade adicional nova neste sprint. O histórico de transações por conta (`GET /contas/{id}/historico`, do Sprint 1) continua disponível e o histórico de liderança (Parte C) cobre a observabilidade.
+**O que é:** o painel de liderança do app Flutter passou a mostrar, além de quem é a líder, **quais das 3 agências estão respondendo agora**. O cabeçalho exibe "Agências ativas: N de 3" e cada agência aparece como uma etiqueta: **líder** (estrela, destacada), **no ar** (verde) ou **fora do ar** (vermelho).
+
+**Como funciona:** o `LiderService` (`app_mobile/lib/services/lider_service.dart`) antes perguntava `GET /bully/lider` a uma agência por vez e parava na primeira que respondia. Agora ele consulta as 3 agências **em paralelo** (`Future.wait`, timeout de 2 s cada) a cada 3 s. Uma agência é considerada ativa se respondeu a requisição com sucesso; as respostas definem o mapa `ativas`. A líder continua sendo lida da última agência que respondeu e que ainda está no ar, para não alternar entre agências que discordam durante uma eleição. O widget `PainelLider` redesenha as etiquetas a cada atualização.
+
+**Por que é útil:** durante o failover o painel mostra a causa e o efeito juntos: a agência 2 (líder) vira "fora do ar" em vermelho, o contador cai para "2 de 3" e, após o heartbeat e a eleição, a estrela passa para a agência 1. Antes só se via a mudança de líder, sem saber qual agência tinha caído.
+
+**Evidência:** `evidencias/sprint3/app-agencias-ativas.png` (app com a agência 2 fora do ar, "2 de 3" e a nova líder). Commit próprio: `feat(app): adiciona indicador de agencias ativas no painel da lider`.
