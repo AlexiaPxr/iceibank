@@ -5,10 +5,14 @@ import 'package:http/http.dart' as http;
 
 /// Erro de uma chamada a API, ja com mensagem pronta para mostrar na tela.
 class ApiException implements Exception {
-  ApiException(this.mensagem, {this.status, this.semConexao = false, this.sessaoExpirada = false});
+  ApiException(this.mensagem,
+      {this.status, this.semConexao = false, this.sessaoExpirada = false, this.dados});
 
   final String mensagem;
   final int? status;
+
+  /// Corpo JSON da resposta de erro (ex.: vetorAtual e contaAtual de um 409).
+  final Map<String, dynamic>? dados;
 
   /// Agencia fora do ar, sem rede ou timeout (nao chegou resposta HTTP).
   final bool semConexao;
@@ -72,6 +76,7 @@ class ApiClient {
       throw ApiException(
         erro is String ? erro : 'Erro inesperado (HTTP ${resposta.statusCode}).',
         status: resposta.statusCode,
+        dados: mapa,
       );
     }
     return mapa;

@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -23,15 +26,72 @@ class AppState extends ChangeNotifier {
   /// Mensagem para a tela de login (ex.: "sua sessao expirou").
   String? avisoLogin;
 
+  /// Offline-first: ultimo vetor logico conhecido da agencia (devolvido em GET /contas/{id}).
+  List<int>? vetor;
+
+  /// Fila de operacoes feitas offline: {tipo: DEPOSITO|SAQUE, valor: double}.
+  final List<Map<String, dynamic>> pendentes = [];
+
+  /// Conflito (409) aguardando decisao da pessoa: {op, saldoAtual, vetorAtual}.
+  Map<String, dynamic>? conflito;
+
+  bool offline = false;
+  bool sincronizando = false;
+  String? avisoSync;
+  Timer? _timer;
+
   bool get logado => token != null && idConta != null;
 
   /// Agencia onde a conta logada existe (particao id % 3).
   String get _urlDaConta => urlDaAgencia(agenciaDaConta(idConta!));
 
+  String get _chaveCache => 'iceibank_cache_$idConta';
+
+  Future<void> _salvarCache() async {
+    if (idConta == null) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(
+      _chaveCache,
+      jsonEncode({'saldo': saldo, 'vetor': vetor, 'pendentes': pendentes}),
+    );
+  }
+
+  Future<void> _carregarCache() async {
+    final prefs = await SharedPreferences.getInstance();
+    final texto = prefs.getString(_chaveCache);
+    pendentes.clear();
+    if (texto == null) return;
+    try {
+      final m = jsonDecode(texto) as Map<String, dynamic>;
+      saldo = (m['saldo'] as num?)?.toDouble();
+      vetor = (m['vetor'] as List?)?.map((e) => (e as num).toInt()).toList();
+      for (final p in (m['pendentes'] as List? ?? [])) {
+        final mp = Map<String, dynamic>.from(p as Map);
+        pendentes.add({'tipo': mp['tipo'], 'valor': (mp['valor'] as num).toDouble()});
+      }
+    } catch (_) {}
+  }
+
+  void _iniciarSincronizacaoAutomatica() {
+    _timer?.cancel();
+    // Tenta sincronizar a cada 5 s: ao voltar a conexao, a fila e enviada sozinha.
+    _timer = Timer.periodic(const Duration(seconds: 5), (_) => sincronizar());
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
   Future<void> restaurarSessao() async {
     final prefs = await SharedPreferences.getInstance();
     token = prefs.getString(_chaveToken);
     idConta = prefs.getInt(_chaveConta);
+    if (logado) {
+      await _carregarCache();
+      _iniciarSincronizacaoAutomatica();
+    }
     restaurando = false;
     notifyListeners();
     if (logado) {
@@ -56,6 +116,8 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_chaveToken, token!);
     await prefs.setInt(_chaveConta, id);
+    await _carregarCache();
+    _iniciarSincronizacaoAutomatica();
     notifyListeners();
     try {
       await atualizarSaldo();
@@ -74,6 +136,11 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    _timer?.cancel();
+    avisoSync = null;
+    pendentes.clear();
+    conflito = null;
+    vetor = null;
     token = null;
     idConta = null;
     saldo = null;
@@ -84,21 +151,139 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> atualizarSaldo() async {
-    final conta = await _autenticado('/contas/$idConta');
-    saldo = (conta['saldo'] as num).toDouble();
+    try {
+      final conta = await _autenticado('/contas/$idConta');
+      offline = false;
+      // Com operacoes pendentes, o saldo mostrado continua o otimista (local).
+      if (pendentes.isEmpty) saldo = (conta['saldo'] as num).toDouble();
+      vetor = (conta['vetorAtual'] as List).map((e) => (e as num).toInt()).toList();
+      await _salvarCache();
+      notifyListeners();
+    } on ApiException catch (e) {
+      if (e.semConexao) {
+        offline = true;
+        notifyListeners();
+      }
+      rethrow;
+    }
+  }
+
+  /// Retorna true se a operacao ficou PENDENTE (sem conexao), false se foi aplicada na hora.
+  Future<bool> depositar(double valor) => _operar('DEPOSITO', valor);
+
+  Future<bool> sacar(double valor) => _operar('SAQUE', valor);
+
+  Future<bool> _operar(String tipo, double valor) async {
+    avisoSync = null;
+    if (pendentes.isNotEmpty) {
+      _enfileirar(tipo, valor); // mantem a ordem: nada passa na frente da fila
+      return true;
+    }
+    final caminho = tipo == 'DEPOSITO' ? 'depositar' : 'sacar';
+    try {
+      final conta = await _autenticado('/contas/$idConta/$caminho', metodo: 'POST', corpo: {'valor': valor});
+      saldo = (conta['saldo'] as num).toDouble();
+      offline = false;
+      notifyListeners();
+      try {
+        await atualizarSaldo(); // renova o vetor conhecido
+      } catch (_) {}
+      return false;
+    } on ApiException catch (e) {
+      if (e.semConexao) {
+        offline = true;
+        _enfileirar(tipo, valor);
+        return true;
+      }
+      rethrow;
+    }
+  }
+
+  /// UI otimista: aplica no saldo local e guarda na fila para sincronizar depois.
+  void _enfileirar(String tipo, double valor) {
+    final atual = saldo ?? 0;
+    if (tipo == 'SAQUE' && atual < valor) {
+      throw ApiException('Saldo insuficiente (saldo local, incluindo pendentes).');
+    }
+    saldo = tipo == 'DEPOSITO' ? atual + valor : atual - valor;
+    pendentes.add({'tipo': tipo, 'valor': valor});
+    _salvarCache();
     notifyListeners();
   }
 
-  Future<void> depositar(double valor) async {
-    final conta = await _autenticado('/contas/$idConta/depositar', metodo: 'POST', corpo: {'valor': valor});
-    saldo = (conta['saldo'] as num).toDouble();
-    notifyListeners();
+  /// Envia a fila em ordem. Para no primeiro conflito (409) ou na primeira falha de rede.
+  Future<void> sincronizar() async {
+    if (!logado || sincronizando || pendentes.isEmpty || conflito != null) return;
+    sincronizando = true;
+    try {
+      if (vetor == null) {
+        await atualizarSaldo();
+      }
+      while (pendentes.isNotEmpty && vetor != null) {
+        final op = pendentes.first;
+        try {
+          final conta = await _autenticado(
+            '/contas/$idConta/sincronizar',
+            metodo: 'POST',
+            corpo: {'tipo': op['tipo'], 'valor': op['valor'], 'vetorConhecido': vetor},
+          );
+          pendentes.removeAt(0);
+          vetor = (conta['vetorAtual'] as List).map((e) => (e as num).toInt()).toList();
+          if (pendentes.isEmpty) saldo = (conta['saldo'] as num).toDouble();
+          offline = false;
+          avisoSync = 'Operação pendente sincronizada com sucesso.';
+          await _salvarCache();
+          notifyListeners();
+        } on ApiException catch (e) {
+          if (e.semConexao) {
+            offline = true;
+            notifyListeners();
+            break;
+          }
+          if (e.status == 409 && e.dados != null) {
+            final atual = e.dados!['contaAtual'] as Map?;
+            conflito = {
+              'op': op,
+              'saldoAtual': (atual?['saldo'] as num?)?.toDouble(),
+              'vetorAtual': (e.dados!['vetorAtual'] as List).map((x) => (x as num).toInt()).toList(),
+            };
+            notifyListeners();
+            break;
+          }
+          // 400 (ex.: saldo insuficiente no servidor): descarta a operacao e avisa.
+          pendentes.removeAt(0);
+          avisoSync = 'Operação pendente recusada pela agência: ${e.mensagem}';
+          await _salvarCache();
+          notifyListeners();
+        }
+      }
+    } finally {
+      sincronizando = false;
+    }
   }
 
-  Future<void> sacar(double valor) async {
-    final conta = await _autenticado('/contas/$idConta/sacar', metodo: 'POST', corpo: {'valor': valor});
-    saldo = (conta['saldo'] as num).toDouble();
-    notifyListeners();
+  /// Decisao da pessoa apos um 409: aplicar mesmo assim (usa o vetor atual) ou descartar.
+  Future<void> resolverConflito({required bool aplicar}) async {
+    final c = conflito;
+    if (c == null) return;
+    conflito = null;
+    vetor = List<int>.from(c['vetorAtual'] as List);
+    if (aplicar) {
+      avisoSync = 'Conflito resolvido: operação reenviada com o estado atual da conta.';
+      notifyListeners();
+      await sincronizar();
+    } else {
+      pendentes.removeAt(0);
+      // volta ao saldo real da agencia e reaplica o que ainda esta pendente
+      var s = (c['saldoAtual'] as double?) ?? saldo ?? 0;
+      for (final p in pendentes) {
+        s += p['tipo'] == 'DEPOSITO' ? (p['valor'] as double) : -(p['valor'] as double);
+      }
+      saldo = s;
+      avisoSync = 'Operação pendente descartada. Saldo atualizado com o valor real da conta.';
+      await _salvarCache();
+      notifyListeners();
+    }
   }
 
   /// Transferencia local ou entre agencias (a propria agencia decide pelo id de destino).
