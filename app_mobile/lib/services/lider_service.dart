@@ -50,27 +50,43 @@ class LiderService extends ChangeNotifier {
     _timer = null;
   }
 
+  /// Agencias que responderam na ultima consulta (indicador de agencias ativas).
+  final Map<int, bool> ativas = {for (var i = 0; i < numeroAgencias; i++) i: false};
+
+  int get quantidadeAtivas => ativas.values.where((v) => v).length;
+
   Future<void> consultar() async {
     if (_consultando) {
       return; // evita consultas sobrepostas quando uma agencia demora
     }
     _consultando = true;
     try {
+      // Pergunta as 3 agencias em paralelo: alem do lider, descobre quais estao no ar.
+      final respostas = await Future.wait([
+        for (var id = 0; id < numeroAgencias; id++) _perguntar(id),
+      ]);
+      for (var id = 0; id < numeroAgencias; id++) {
+        ativas[id] = respostas[id] != null;
+      }
+
+      // Continua usando a ultima agencia que respondeu, se ela ainda estiver no ar.
+      int? escolhida;
       for (var i = 0; i < numeroAgencias; i++) {
-        final idAgencia = (_agenciaPreferida + i) % numeroAgencias;
-        final resposta = await _perguntar(idAgencia);
-        if (resposta != null) {
-          _agenciaPreferida = idAgencia;
-          lider = resposta.lider;
-          agenciaConsultada = idAgencia;
-          semResposta = false;
-          jaConsultou = true;
-          atualizadoEm = DateTime.now();
-          _avisar();
-          return;
+        final id = (_agenciaPreferida + i) % numeroAgencias;
+        if (respostas[id] != null) {
+          escolhida = id;
+          break;
         }
       }
-      semResposta = true;
+
+      if (escolhida != null) {
+        _agenciaPreferida = escolhida;
+        lider = respostas[escolhida]!.lider;
+        agenciaConsultada = escolhida;
+        semResposta = false;
+      } else {
+        semResposta = true;
+      }
       jaConsultou = true;
       atualizadoEm = DateTime.now();
       _avisar();

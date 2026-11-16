@@ -67,16 +67,16 @@ class PainelLider extends StatelessWidget {
                 const SizedBox(height: 4),
                 Text('$detalhe$hora', style: Theme.of(context).textTheme.bodySmall),
                 const SizedBox(height: 10),
+                Text(
+                  'Agências ativas: ${servico.quantidadeAtivas} de $numeroAgencias',
+                  style: Theme.of(context).textTheme.labelLarge,
+                ),
+                const SizedBox(height: 6),
                 Wrap(
                   spacing: 8,
+                  runSpacing: 4,
                   children: [
-                    for (var id = 0; id < numeroAgencias; id++)
-                      Chip(
-                        avatar: servico.lider == id && !servico.semResposta ? const Icon(Icons.star, size: 18) : null,
-                        label: Text('Agência $id'),
-                        backgroundColor:
-                            servico.lider == id && !servico.semResposta ? Colors.amber.shade200 : null,
-                      ),
+                    for (var id = 0; id < numeroAgencias; id++) _chipAgencia(id),
                   ],
                 ),
               ],
@@ -84,6 +84,22 @@ class PainelLider extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+
+  Widget _chipAgencia(int id) {
+    final ativa = servico.ativas[id] ?? false;
+    final lider = servico.lider == id && !servico.semResposta && ativa;
+    final Widget icone = lider
+        ? const Icon(Icons.star, size: 18, color: Colors.orange)
+        : Icon(ativa ? Icons.check_circle : Icons.cancel,
+            size: 18, color: ativa ? Colors.green : Colors.red);
+    return Chip(
+      avatar: icone,
+      label: Text('Agência $id · ${ativa ? (lider ? 'líder' : 'no ar') : 'fora do ar'}'),
+      backgroundColor: lider
+          ? Colors.amber.shade200
+          : (ativa ? Colors.green.shade50 : Colors.red.shade50),
     );
   }
 }
