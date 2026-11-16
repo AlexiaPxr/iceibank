@@ -136,6 +136,8 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    ApiClient.simularOffline = false; // nao deixa a simulacao travar o proximo login
+    offline = false;
     _timer?.cancel();
     avisoSync = null;
     pendentes.clear();

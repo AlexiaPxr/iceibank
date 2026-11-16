@@ -277,7 +277,8 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
           if (app.pendentes.isNotEmpty) ...[
             const SizedBox(height: 6),
-            Text('⏳ ${app.pendentes.length} operação(ões) PENDENTE(S) de sincronização',
+            Text(
+                '⏳ ${app.pendentes.length} ${app.pendentes.length == 1 ? 'operação PENDENTE' : 'operações PENDENTES'} de sincronização',
                 style: const TextStyle(fontWeight: FontWeight.bold)),
             for (final p in app.pendentes)
               Text('• ${p['tipo']} ${formatarReais((p['valor'] as num).toDouble())} (aguardando)'),

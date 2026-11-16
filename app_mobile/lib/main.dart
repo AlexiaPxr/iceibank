@@ -98,6 +98,13 @@ class _IceiBankAppState extends State<IceiBankApp> {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
         ),
       ),
+      switchTheme: SwitchThemeData(
+        thumbColor: WidgetStateProperty.all(Colors.white),
+        trackColor: WidgetStateProperty.resolveWith(
+          (estados) => estados.contains(WidgetState.selected) ? Colors.orange.shade600 : Colors.white24,
+        ),
+        trackOutlineColor: WidgetStateProperty.all(Colors.white70),
+      ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: Colors.white,
         indicatorColor: cores.primaryContainer,
